@@ -3318,6 +3318,7 @@ def transcribe_translate_worker(
             result = mlx_whisper.transcribe(
                 whisper_input,
                 path_or_hf_repo=whisper_repo,
+                task=whisper_task,
                 language=None if source_language == "auto" else source_language,
                 condition_on_previous_text=False,
                 initial_prompt=context_prompt,
