@@ -3090,6 +3090,7 @@ def transcribe_translate_worker(
     max_partial_seconds,
     word_timestamps,
     reset_gen=None,
+    whisper_task="transcribe",
 ):
     import mlx_whisper
 
@@ -3165,15 +3166,25 @@ def transcribe_translate_worker(
             source_text = sentence_case_text(source_text)
             phrase_start = buffer_start_seconds if buffer_start_seconds is not None else start_seconds
             phrase_end = end_seconds if end_seconds is not None else buffer_end_seconds
-            post_source_and_enqueue_translation(
-                translation_q,
-                overlay,
-                source_text,
-                pause_ms=pause_ms,
-                source_language=resolved_source_language,
-                start_seconds=phrase_start,
-                end_seconds=phrase_end,
-            )
+            if whisper_task == "translate":
+                overlay.post_pair(
+                    "",
+                    source_text,
+                    pause_ms=pause_ms,
+                    source_language=resolved_source_language,
+                    start_seconds=phrase_start,
+                    end_seconds=phrase_end,
+                )
+            else:
+                post_source_and_enqueue_translation(
+                    translation_q,
+                    overlay,
+                    source_text,
+                    pause_ms=pause_ms,
+                    source_language=resolved_source_language,
+                    start_seconds=phrase_start,
+                    end_seconds=phrase_end,
+                )
             note_context(source_text)
         overlay.post_partial(sentence_case_text(sentence_buffer))
         if not sentence_buffer:
@@ -3378,13 +3389,22 @@ def transcribe_translate_worker(
                         end_seconds=item_end_seconds,
                     )
             else:
-                enqueue_translation(
-                    translation_q,
-                    sentence_case_text(text),
-                    source_language=resolved_source_language,
-                    start_seconds=item_start_seconds,
-                    end_seconds=item_end_seconds,
-                )
+                if whisper_task == "translate":
+                    overlay.post_pair(
+                        "",
+                        sentence_case_text(text),
+                        source_language=resolved_source_language,
+                        start_seconds=item_start_seconds,
+                        end_seconds=item_end_seconds,
+                    )
+                else:
+                    enqueue_translation(
+                        translation_q,
+                        sentence_case_text(text),
+                        source_language=resolved_source_language,
+                        start_seconds=item_start_seconds,
+                        end_seconds=item_end_seconds,
+                    )
                 note_context(text)
         except Exception as exc:
             overlay.post_pair("", f"Error: {exc}")
@@ -4145,6 +4165,7 @@ def main():
                     args.max_partial_seconds,
                     not args.no_word_timestamps,
                     reset_gen,
+                    whisper_task,
                 ),
                 daemon=True,
             ),
