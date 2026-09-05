@@ -84,9 +84,12 @@ The first launch may request microphone permission. This is required to read Bla
 Supported MLX Whisper models:
 
 - `small` — lowest resource usage
-- `medium` — balanced
-- `turbo` — recommended for live use
-- `large` — highest accuracy
+- `medium` — balanced; translate-capable
+- `turbo` — fastest, but **transcribe-only** (cannot translate)
+- `large-q4` — 4-bit large-v3 (~1.6GB); translate-capable, default for `--whisper-translate`
+- `large` — highest accuracy; translate-capable
+
+> `turbo` (large-v3-turbo) is a distilled, transcribe-only model. With `--whisper-translate` it returns source-language text instead of English, so the app auto-swaps it to `large-q4` and prints a warning.
 
 Pre-download the default models:
 
@@ -94,7 +97,8 @@ Pre-download the default models:
 ./.venv/bin/python -c "from huggingface_hub import snapshot_download; \
 [snapshot_download(r) for r in (
   'mlx-community/whisper-medium-mlx',
-  'mlx-community/whisper-large-v3-turbo'
+  'mlx-community/whisper-large-v3-turbo',
+  'mlx-community/whisper-large-v3-mlx-4bit'
 )]"
 ```
 
@@ -116,7 +120,7 @@ ollama pull gemma4:12b-mlx
 
 If you only need Ukrainian → English, use `--whisper-translate` and skip Ollama entirely.
 
-Recommended preset (UK→EN, no Ollama): **Whisper Turbo + `--whisper-translate`** (~1.5GB)
+Recommended preset (UK→EN, no Ollama): **Whisper `large-q4` + `--whisper-translate`** (~1.6GB)
 Recommended preset (with Ollama): **Whisper Turbo + Gemma 4 12B** (~8.5GB total)
 
 ### Run
@@ -136,7 +140,7 @@ No Ollama, no Gemma, no extra download beyond the Whisper model itself.
 ./.venv/bin/python live_translate_overlay.py --whisper-translate --source uk
 ```
 
-Use `--whisper turbo` (default) for the fastest live captions, or `--whisper large` for higher accuracy.
+Defaults to `large-q4` (translate-capable). The overlay shows a single full-width English column in this mode. Use `--whisper medium` for faster captions, or `--whisper large` for highest accuracy. `turbo` is rejected for translation (auto-swapped to `large-q4`).
 
 #### With Ollama (any target language)
 
@@ -232,8 +236,8 @@ The LLM receives complete sentences plus recent context, producing more coherent
 ```text
 --source LANGUAGE
 --target LANGUAGE
---whisper MODEL
---whisper-translate        use Whisper's built-in translation; no Ollama needed
+--whisper MODEL            small | medium | turbo | large-q4 | large
+--whisper-translate        use Whisper's built-in translation; no Ollama needed (turbo not supported)
 --ollama-model MODEL
 --silence-rms VALUE
 --vad-min-speech-ms VALUE

@@ -70,13 +70,21 @@ WHISPER_MODELS = {
     "small": "mlx-community/whisper-small-mlx",
     "medium": "mlx-community/whisper-medium-mlx",
     "turbo": "mlx-community/whisper-large-v3-turbo",
+    "large-q4": "mlx-community/whisper-large-v3-mlx-4bit",
     "large": "mlx-community/whisper-large-v3-mlx",
 }
+
+# Whisper's translate task is only reliable on the full large-v3 encoder/decoder. The
+# distilled turbo model was pruned for transcription and quietly returns source-language
+# text for the translate task, so it is not a valid whisper-translate model.
+WHISPER_TRANSLATE_MODELS = {"small", "medium", "large-q4", "large"}
+WHISPER_TRANSLATE_DEFAULT = "large-q4"
 
 WHISPER_MENU = [
     ("small", "Whisper Small"),
     ("medium", "Whisper Medium"),
     ("turbo", "Whisper Turbo"),
+    ("large-q4", "Whisper Large (4-bit)"),
     ("large", "Whisper Large"),
 ]
 WHISPER_LABELS = dict(WHISPER_MENU)
@@ -302,7 +310,7 @@ def _glass_pdf_view_class():
 
 
 class GlassOverlay:
-    def __init__(self, stop_event, settings: LanguageSettings, title, width, height, opacity, show_partial=False):
+    def __init__(self, stop_event, settings: LanguageSettings, title, width, height, opacity, show_partial=False, whisper_translate=False):
         try:
             from Cocoa import (
                 NSApp,
@@ -371,6 +379,7 @@ class GlassOverlay:
         self.NSViewWidthSizable = NSViewWidthSizable
         self.stop_event = stop_event
         self.settings = settings
+        self.whisper_translate = whisper_translate
         self.original_text = ""
         self.partial_text = ""
         self.partial_translation = ""
@@ -919,6 +928,23 @@ class GlassOverlay:
         self.translated_view.setString_(self._waiting_translation())
         self.left_scroll.setDocumentView_(self.original_view)
         self.right_scroll.setDocumentView_(self.translated_view)
+        if self.whisper_translate:
+            # Whisper's translate task emits English only — there is no separate source
+            # transcript to show. Collapse to a single full-width pane (reusing the compact
+            # layout) and relabel it, so the English lands in one clean column instead of
+            # leaving "Original" stuck on "Waiting for speech...".
+            self.translation_label.setStringValue_("English")
+            self.compact_mode = True
+            self.left_scroll.setHidden_(True)
+            self.original_label.setHidden_(True)
+            self.divider_shadow.setHidden_(True)
+            self.divider_highlight.setHidden_(True)
+            self.right_scroll.setFrame_(self.compact_frames["right_scroll"])
+            self.translation_label.setFrame_(self.compact_frames["translation_label"])
+            self.translated_view.setFrame_(self.right_scroll.contentView().bounds())
+            self.translated_view.setString_("Waiting for speech...")
+            # No source column to swap to, so the Compact/Expanded toggle is meaningless here.
+            self.compact_button.setHidden_(True)
         self.save_panel.removeFromSuperview()
         visual.addSubview_(self.save_panel)
         self.settings_panel.removeFromSuperview()
@@ -2214,6 +2240,13 @@ class GlassOverlay:
             now = time.monotonic()
             speaker_gap = pause_ms >= 1400
             source_language = str(source_language or "").strip()
+            if self.whisper_translate and not source and translated and not str(translated).startswith("Error:"):
+                # Whisper-translate posts English in the `translated` slot with an empty source.
+                # The visible pane in this mode is the (full-width) translated view, so keep the
+                # English there for rendering, but also copy it into `source` — the history/Save
+                # gate below requires a non-empty source. Don't append to the hidden left pane.
+                source = translated
+                append_source = False
             elapsed_now = now - self.session_started_at
             time_offset = float(getattr(self, "session_time_offset_seconds", 0.0) or 0.0)
             phrase_start = (
@@ -2444,7 +2477,7 @@ class GlassOverlay:
                 full_text += "\n\n"
             full_text += partial
         if not full_text:
-            full_text = self._waiting_translation()
+            full_text = "Waiting for speech..." if self.whisper_translate else self._waiting_translation()
         font = self.NSFont.systemFontOfSize_weight_(self.font_size, 0.22)
         attrs = {
             self.NSForegroundColorAttributeName: self._text_color(),
@@ -3890,7 +3923,7 @@ def parse_args():
         "--whisper",
         choices=WHISPER_MODELS.keys(),
         default="turbo",
-        help="MLX Whisper size: small/medium/turbo/large",
+        help="MLX Whisper size: small/medium/turbo/large-q4/large (turbo cannot translate)",
     )
     p.add_argument(
         "--ollama-model",
@@ -4068,6 +4101,13 @@ def main():
 
     stop_event = threading.Event()
     reset_gen = [0]  # bumped by the Clear button to wipe both workers' state
+    if args.whisper_translate and args.whisper not in WHISPER_TRANSLATE_MODELS:
+        print(
+            f"Whisper '{args.whisper}' cannot translate (it returns source-language text for "
+            f"the translate task). Switching to '{WHISPER_TRANSLATE_DEFAULT}'.",
+            file=sys.stderr,
+        )
+        args.whisper = WHISPER_TRANSLATE_DEFAULT
     settings = LanguageSettings(
         args.source,
         args.target,
@@ -4105,6 +4145,7 @@ def main():
             height=args.height,
             opacity=args.opacity,
             show_partial=args.show_partial,
+            whisper_translate=args.whisper_translate,
         )
     )
     overlay.reset_gen = reset_gen
