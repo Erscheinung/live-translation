@@ -191,6 +191,22 @@ def sentence_case_text(text):
     return "".join(chars)
 
 
+def ensure_sentence_end(text):
+    """Append a period if the (stripped) text has no terminal punctuation.
+
+    Whisper's translate task tends to under-punctuate continuous speech, leaving
+    sentence-final stops off. Applied when a block is committed at a speech endpoint
+    (a silence boundary), where a full stop is warranted.
+    """
+    stripped = text.rstrip()
+    if not stripped:
+        return text
+    if stripped[-1] in ".!?…":
+        return text
+    trailing = text[len(stripped):]
+    return f"{stripped}.{trailing}"
+
+
 def _word_matches(text):
     return list(re.finditer(r"[\w'’-]+", text, flags=re.UNICODE))
 

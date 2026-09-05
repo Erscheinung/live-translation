@@ -1,6 +1,7 @@
 from live_translation.text_pipeline import (
     absolute_words,
     dedup_words_by_time,
+    ensure_sentence_end,
     last_word_end_seconds,
     merge_overlap_text,
     merge_partial_buffer,
@@ -61,6 +62,21 @@ def test_sentence_case_text_capitalizes_sentence_starts():
     assert sentence_case_text("hello world. second thought? yes.") == (
         "Hello world. Second thought? Yes."
     )
+
+
+def test_ensure_sentence_end_appends_period_when_missing():
+    assert ensure_sentence_end("this has no stop") == "this has no stop."
+
+
+def test_ensure_sentence_end_preserves_existing_terminal_punctuation():
+    assert ensure_sentence_end("already done.") == "already done."
+    assert ensure_sentence_end("really?") == "really?"
+    assert ensure_sentence_end("wait...") == "wait..."
+
+
+def test_ensure_sentence_end_keeps_trailing_whitespace_after_period():
+    assert ensure_sentence_end("trailing space ") == "trailing space. "
+    assert ensure_sentence_end("") == ""
 
 
 def test_merge_overlap_text_removes_repeated_prefix_words():

@@ -53,6 +53,7 @@ from live_translation.text_pipeline import (
     WAITING_TRANSLATION,
     absolute_words,
     dedup_words_by_time,
+    ensure_sentence_end,
     language_label,
     last_word_end_seconds,
     merge_overlap_text,
@@ -2172,6 +2173,12 @@ class GlassOverlay:
         )
 
     def post_partial(self, source):
+        if self.whisper_translate:
+            # No source column in this mode — the "partial source" is really the English
+            # translation arriving live, so stream it into the visible (translation) pane
+            # regardless of show_partial, matching post_partial_translation.
+            self.AppHelper.callAfter(self._set_partial_translation, source)
+            return
         if not self.show_partial:
             return
         self.AppHelper.callAfter(self._set_partial, source)
@@ -3202,7 +3209,7 @@ def transcribe_translate_worker(
             if whisper_task == "translate":
                 overlay.post_pair(
                     "",
-                    source_text,
+                    ensure_sentence_end(source_text),
                     pause_ms=pause_ms,
                     source_language=resolved_source_language,
                     start_seconds=phrase_start,
@@ -4109,6 +4116,18 @@ def main():
             file=sys.stderr,
         )
         args.whisper = WHISPER_TRANSLATE_DEFAULT
+    if args.whisper_translate:
+        # Whisper-translate produces English per chunk with no downstream LLM call, so the
+        # large blocks tuned for batching Ollama just delay what shows on screen. Commit
+        # roughly sentence-by-sentence for a snappier feel — but only when the user hasn't
+        # set these explicitly on the command line.
+        passed = set(sys.argv[1:])
+        if "--max-sentences" not in passed:
+            args.max_sentences = 1
+        if "--endpoint-min-words" not in passed:
+            args.endpoint_min_words = 6
+        if "--max-block-chars" not in passed:
+            args.max_block_chars = 320
     settings = LanguageSettings(
         args.source,
         args.target,
