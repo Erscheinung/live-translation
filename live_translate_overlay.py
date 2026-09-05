@@ -3559,6 +3559,7 @@ def streaming_worker(
     vad_min_speech_ms=250.0,
     update_seconds=1.0,
     block_seconds=0.2,
+    whisper_task="transcribe",
 ):
     """LocalAgreement-2 streaming transcription + translation."""
     import mlx_whisper
@@ -3608,6 +3609,7 @@ def streaming_worker(
         result = mlx_whisper.transcribe(
             whisper_input,
             path_or_hf_repo=whisper_repo,
+            task=whisper_task,
             language=None if source_language == "auto" else source_language,
             condition_on_previous_text=False,
             initial_prompt=context,
@@ -3645,18 +3647,29 @@ def streaming_worker(
             src = sentence_case_text(block)
             phrase_start = committed_start_seconds
             phrase_end = max(float(phrase_start or 0.0) + 0.001, stream_cursor_seconds)
-            # Hand the block to the translation worker instead of blocking this audio-reader
-            # thread on Ollama; otherwise translation latency stalls transcription and the
-            # audio queue overflows.
-            post_source_and_enqueue_translation(
-                translation_q,
-                overlay,
-                src,
-                pause_ms=pause_ms,
-                source_language=resolved_source,
-                start_seconds=phrase_start,
-                end_seconds=phrase_end,
-            )
+            if whisper_task == "translate":
+                # Whisper already translated — post directly, skip Ollama.
+                overlay.post_pair(
+                    "",
+                    src,
+                    pause_ms=pause_ms,
+                    source_language=resolved_source,
+                    start_seconds=phrase_start,
+                    end_seconds=phrase_end,
+                )
+            else:
+                # Hand the block to the translation worker instead of blocking this audio-reader
+                # thread on Ollama; otherwise translation latency stalls transcription and the
+                # audio queue overflows.
+                post_source_and_enqueue_translation(
+                    translation_q,
+                    overlay,
+                    src,
+                    pause_ms=pause_ms,
+                    source_language=resolved_source,
+                    start_seconds=phrase_start,
+                    end_seconds=phrase_end,
+                )
             note_context(src)
         if blocks:
             committed_start_seconds = stream_cursor_seconds if committed_text.strip() else None
@@ -4002,6 +4015,14 @@ def parse_args():
         help="show live draft before finalisation; by default the UI shows only completed blocks",
     )
     p.add_argument("--no-window", action="store_true", help="print to terminal instead of showing window")
+    p.add_argument(
+        "--whisper-translate",
+        action="store_true",
+        help=(
+            "use Whisper's built-in translation (outputs English directly from any source language). "
+            "No Ollama required. --target is ignored; output is always English."
+        ),
+    )
     return p.parse_args()
 
 
@@ -4038,12 +4059,20 @@ def main():
     chunk_q = queue.Queue(maxsize=args.chunk_queue)
     translation_q = queue.Queue(maxsize=args.translation_queue)
 
-    print("Loading translator...")
-    translator = build_translator(args)
-    print(
-        f"Start: {info['name']} -> Whisper {args.whisper} -> "
-        f"Ollama {args.ollama_model} -> {args.target}"
-    )
+    whisper_task = "translate" if args.whisper_translate else "transcribe"
+
+    if args.whisper_translate:
+        translator = None
+        print(
+            f"Start: {info['name']} -> Whisper {args.whisper} (translate) -> English"
+        )
+    else:
+        print("Loading translator...")
+        translator = build_translator(args)
+        print(
+            f"Start: {info['name']} -> Whisper {args.whisper} -> "
+            f"Ollama {args.ollama_model} -> {args.target}"
+        )
 
     overlay = (
         ConsoleOverlay(stop_event, show_partial=args.show_partial)
@@ -4066,12 +4095,15 @@ def main():
             args=(audio_q, stop_event, device, samplerate, channels, args.block_seconds),
             daemon=True,
         ),
-        threading.Thread(
-            target=translation_worker,
-            args=(translation_q, overlay, translator, stop_event, settings, reset_gen),
-            daemon=True,
-        ),
     ]
+    if not args.whisper_translate:
+        workers.append(
+            threading.Thread(
+                target=translation_worker,
+                args=(translation_q, overlay, translator, stop_event, settings, reset_gen),
+                daemon=True,
+            )
+        )
     if args.legacy_chunking:
         workers += [
             threading.Thread(
@@ -4140,6 +4172,7 @@ def main():
                     args.vad_min_speech_ms,
                     args.update_seconds,
                     args.block_seconds,
+                    whisper_task,
                 ),
                 daemon=True,
             )

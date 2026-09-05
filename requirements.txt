@@ -1,27 +1,28 @@
 # Live Translate overlay — dependencies
 # macOS (Apple Silicon) + Python 3.12+. Install into a venv:
-#   python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+#   python3.12 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 
 # --- Speech-to-text (Whisper on MLX) ---
-# Translation itself runs in Ollama (external server), not a pip dependency.
-mlx==0.31.2
-mlx-metal==0.31.2            # Apple Silicon Metal backend for mlx
-mlx-whisper==0.4.3
+# Translation itself can run in Ollama (external server) OR via Whisper's built-in
+# translate task (--whisper-translate flag). Ollama is not a pip dependency either way.
+mlx>=0.31.2
+mlx-metal>=0.31.2            # Apple Silicon Metal backend for mlx
+mlx-whisper>=0.4.3
 
 # --- Voice activity detection (silence/non-speech filtering) ---
-silero-vad==6.2.1
-torch==2.12.0
-torchaudio==2.11.0          # used to resample audio to 16 kHz for VAD
+silero-vad>=6.2.1
+torch>=2.5.0
+torchaudio>=2.5.0            # used to resample audio to 16 kHz for VAD
 
 # --- Audio capture / IO ---
-sounddevice==0.5.5          # system audio input (e.g. BlackHole loopback)
-soundfile==0.14.0           # write WAV chunks for Whisper
-numpy==2.4.6
+sounddevice>=0.5.1           # system audio input (e.g. BlackHole loopback)
+soundfile>=0.12.1            # write WAV chunks for Whisper
+numpy>=1.26.0
 
 # --- macOS glass overlay UI ---
-pyobjc-framework-Cocoa==12.2  # pulls in pyobjc-core
-pyobjc-framework-Quartz==12.2 # PDF page rendering/export
+pyobjc-framework-Cocoa>=10.3  # pulls in pyobjc-core
+pyobjc-framework-Quartz>=10.3 # PDF page rendering/export
 
 # --- Tokenizers / model loading (used by mlx-whisper) ---
-transformers==5.12.0
-tokenizers==0.22.2
+transformers>=4.40.0
+tokenizers>=0.19.0

@@ -11,12 +11,15 @@ Everything runs locally on Apple silicon. No API keys, accounts, or cloud servic
 ## TL;DR
 
 ```text
-system audio ──► Whisper ──► local LLM ──► glass overlay
-   BlackHole       MLX        Ollama         PyObjC
+system audio ──► Whisper ──► glass overlay
+   BlackHole       MLX         PyObjC
+
+         ──► Whisper translate ──►  (no Ollama required)
+         ──► Whisper + Ollama  ──►  (higher quality, more languages)
 ```
 
-- MLX Whisper for transcription
-- Gemma 4 through Ollama for translation
+- MLX Whisper for transcription (and optionally translation)
+- Gemma 4 through Ollama for translation (optional — Ollama-free mode available)
 - Silero VAD for speech detection
 - PyObjC for the always-on-top overlay
 
@@ -95,25 +98,26 @@ Pre-download the default models:
 )]"
 ```
 
-#### Gemma 4
+#### Gemma 4 (optional — only needed for non-English targets or higher translation quality)
 
 Supported Ollama models:
 
 ```text
-gemma4:26b-mlx
-gemma4:e4b-mlx
-gemma4:12b-mlx
+gemma4:12b-mlx   (~7GB)   — recommended
+gemma4:e4b-mlx   (~2.5GB) — lightest
+gemma4:26b-mlx   (~16GB)  — highest quality; requires 18GB+ unified memory
 ```
 
-Download them with:
+Download with:
 
 ```bash
-for model in gemma4:26b-mlx gemma4:e4b-mlx gemma4:12b-mlx; do
-    ollama pull "$model"
-done
+ollama pull gemma4:12b-mlx
 ```
 
-Recommended preset: **Whisper Turbo + Gemma 4 26B**
+If you only need Ukrainian → English, use `--whisper-translate` and skip Ollama entirely.
+
+Recommended preset (UK→EN, no Ollama): **Whisper Turbo + `--whisper-translate`** (~1.5GB)
+Recommended preset (with Ollama): **Whisper Turbo + Gemma 4 12B** (~8.5GB total)
 
 ### Run
 
@@ -123,6 +127,30 @@ Launch `LiveTranslate.app`, or run:
 ./.venv/bin/python live_translate_overlay.py --target ru
 ```
 
+#### Ollama-free mode (Ukrainian → English, no LLM needed)
+
+Whisper has a built-in translate task that outputs English directly from any source language.
+No Ollama, no Gemma, no extra download beyond the Whisper model itself.
+
+```bash
+./.venv/bin/python live_translate_overlay.py --whisper-translate --source uk
+```
+
+Use `--whisper turbo` (default) for the fastest live captions, or `--whisper large` for higher accuracy.
+
+#### With Ollama (any target language)
+
+```bash
+# Start Ollama in another terminal
+ollama serve
+
+# Translate to any language
+./.venv/bin/python live_translate_overlay.py \
+    --source uk \
+    --target en \
+    --ollama-model gemma4:12b-mlx
+```
+
 Example with fixed languages and a different Whisper model:
 
 ```bash
@@ -130,8 +158,29 @@ Example with fixed languages and a different Whisper model:
     --source es \
     --target en \
     --whisper large \
-    --ollama-model gemma4:26b-mlx
+    --ollama-model gemma4:12b-mlx
 ```
+
+### Batch transcribe a video file
+
+After a recording (from OBS or anywhere), use `transcribe_file.py` to get subtitles:
+
+```bash
+# Translate Ukrainian video to English SRT (uses large model for best quality):
+./.venv/bin/python transcribe_file.py video.mp4 --task translate --whisper large
+
+# Fast pass with turbo:
+./.venv/bin/python transcribe_file.py video.mp4 --task translate --whisper turbo
+
+# Keep original language (no translation):
+./.venv/bin/python transcribe_file.py video.mp4 --task transcribe --whisper large
+
+# Choose output format (srt/vtt/txt):
+./.venv/bin/python transcribe_file.py video.mp4 --task translate --format vtt -o subs.vtt
+```
+
+The script accepts any format ffmpeg can read — `.mp4`, `.mkv`, `.mov`, `.mp3`, `.wav`, etc.
+Output defaults to the same filename with the new extension next to the input file.
 
 ### Install the app
 
@@ -184,6 +233,7 @@ The LLM receives complete sentences plus recent context, producing more coherent
 --source LANGUAGE
 --target LANGUAGE
 --whisper MODEL
+--whisper-translate        use Whisper's built-in translation; no Ollama needed
 --ollama-model MODEL
 --silence-rms VALUE
 --vad-min-speech-ms VALUE
@@ -212,6 +262,7 @@ View all options:
 
 ```text
 live_translate_overlay.py   CLI, audio pipeline, and Cocoa overlay
+transcribe_file.py          batch transcribe/translate a video or audio file
 live_translation/           segmentation, cleanup, and translation
 LiveTranslate.app           macOS app bundle
 install-app.sh              app installer
